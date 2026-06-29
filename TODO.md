@@ -114,8 +114,8 @@
 
 ## Final Deliverables & Polish
 
-- [x] Record **5-minute Demo Video** (platform + SaaS Sales use case).
-- [x] Record **5-minute Architecture Walkthrough** explaining key decisions.
+- [ ] Record **5-minute Demo Video** (platform + SaaS Sales use case).
+- [ ] Record **5-minute Architecture Walkthrough** explaining key decisions.
 - [x] Complete GitHub Repository:
   - [x] Excellent README with setup, screenshots, architecture diagram.
   - [x] Clear documentation of business domain, metrics, and evaluation approach.
