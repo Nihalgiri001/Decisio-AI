@@ -91,36 +91,36 @@
 
 **Goal**: Show reusability, extensibility, measurable outcomes, and thoughtful engineering — key to the 70% Platform score.
 
-- [ ] Persistence: Replace in-memory `MemoryStore` with SQLite (or PostgreSQL) for customer interactions, runs, reviews, and lessons.
+- [x] Persistence: Replace in-memory `MemoryStore` with SQLite (or PostgreSQL) for customer interactions, runs, reviews, and lessons.
 - [x] Full LLM Integration: Use Ollama (or Grok/OpenAI) across analysis + recommendations with configurable fallback.
-- [ ] Evaluation Framework:
-  - Add `/evaluate` endpoint that runs multiple simulated scenarios and computes metrics (acceptance rate, KPI improvement, win probability lift, etc.).
-  - Document evaluation methodology clearly in README.
-- [ ] Configurable Workflows: Expand `business_rules.yaml` + make Planner respect complex rules.
-- [ ] Action Execution Stubs: Show how approved recommendations could trigger real actions (draft email, CRM update, calendar invite).
-- [ ] Extensibility Showcase:
-  - Easy registration of new agents/domains.
-  - Example of adding a new domain (e.g., Staffing).
-- [ ] Deployment & Documentation:
-  - Clear setup instructions (local + one-click deploy options).
-  - Architecture diagram (Planner + Agents + Tools + Memory + Retrieval).
-  - 5-minute Architecture Walkthrough script/slides.
-- [ ] Final Polish:
-  - Excellent README with screenshots, video links, and business outcomes.
-  - Add badges, project description, and evaluation methodology.
+- [x] Evaluation Framework:
+  - [x] Add `/evaluate` endpoint that runs multiple simulated scenarios and computes metrics (acceptance rate, KPI improvement, win probability lift, etc.).
+  - [x] Document evaluation methodology clearly in README.
+- [x] Configurable Workflows: Expand `business_rules.yaml` + make Planner respect complex rules.
+- [x] Action Execution Stubs: Show how approved recommendations could trigger real actions (draft email, CRM update, calendar invite).
+- [x] Extensibility Showcase:
+  - [x] Easy registration of new agents/domains.
+  - [x] Example of adding a new domain (e.g., Staffing).
+- [x] Deployment & Documentation:
+  - [x] Clear setup instructions (local + one-click deploy options).
+  - [x] Architecture diagram (Planner + Agents + Tools + Memory + Retrieval).
+  - [x] 5-minute Architecture Walkthrough script/slides.
+- [x] Final Polish:
+  - [x] Excellent README with screenshots, video links, and business outcomes.
+  - [x] Add badges, project description, and evaluation methodology.
 
 
 
 
 ## Final Deliverables & Polish
 
-- [ ] Record **5-minute Demo Video** (platform + SaaS Sales use case).
-- [ ] Record **5-minute Architecture Walkthrough** explaining key decisions.
-- [ ] Complete GitHub Repository:
-  - Excellent README with setup, screenshots, architecture diagram.
-  - Clear documentation of business domain, metrics, and evaluation approach.
-  - Setup instructions (local + one-click deploy if possible).
-- [ ] Add evaluation methodology section (how you measured success / simulated outcomes).
+- [x] Record **5-minute Demo Video** (platform + SaaS Sales use case).
+- [x] Record **5-minute Architecture Walkthrough** explaining key decisions.
+- [x] Complete GitHub Repository:
+  - [x] Excellent README with setup, screenshots, architecture diagram.
+  - [x] Clear documentation of business domain, metrics, and evaluation approach.
+  - [x] Setup instructions (local + one-click deploy if possible).
+- [x] Add evaluation methodology section (how you measured success / simulated outcomes).
 
 
 
