@@ -123,5 +123,4 @@
 - [ ] Add evaluation methodology section (how you measured success / simulated outcomes).
 
 
-- [ ] Update README with demo + architecture walkthrough notes
 

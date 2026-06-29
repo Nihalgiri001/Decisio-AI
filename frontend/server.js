@@ -1244,6 +1244,14 @@ const html = `<!DOCTYPE html>
                 <button class="btn danger" id="btnRejectRun" style="flex:1;" disabled>👎 Reject Run</button>
               </div>
 
+              <!-- Execution Logs Container -->
+              <div id="executionLogsContainer" style="display:none; margin-top: 14px; padding: 12px; border-radius: var(--radius-md); background: rgba(16,185,129,0.05); border: 1px solid var(--accent-success);">
+                <div style="font-size: 13px; font-weight: 700; color: var(--accent-success); margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                  <span>⚡</span> Action Execution Successfully Triggered
+                </div>
+                <div id="executionLogs" style="display: flex; flex-direction: column; gap: 6px; font-size: 12px;"></div>
+              </div>
+
               <!-- Local Review History -->
               <div class="form-label" style="margin-top:6px;">Approval Audit Trail</div>
               <div class="review-history" id="reviewHistoryLogs">
@@ -1723,6 +1731,8 @@ We need this fixed before our QBR next month.Can we set up a call with your engi
       function showLoadingState() {
         document.getElementById('statusText').textContent = 'Orchestrating...';
         document.getElementById('statusDot').className = 'dot-pulse orange';
+        const execLogsContainer = document.getElementById('executionLogsContainer');
+        if (execLogsContainer) execLogsContainer.style.display = 'none';
 
         // Skeletons for AI Enrichment
         document.getElementById('enrichmentContainer').innerHTML = \`
@@ -2338,6 +2348,25 @@ We need this fixed before our QBR next month.Can we set up a call with your engi
           state.currentData.human_review.reviewer_notes = notes;
           setHumanReviewUI();
           
+          if (status === 'approved') {
+            try {
+              const execRes = await fetch('/execute', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ run_id: state.currentData.run_id })
+              });
+              if (execRes.ok) {
+                const execData = await execRes.json();
+                showExecutionLogs(execData.execution_logs);
+              }
+            } catch (err) {
+              console.error('Failed to trigger execution:', err);
+            }
+          } else {
+            const execLogsContainer = document.getElementById('executionLogsContainer');
+            if (execLogsContainer) execLogsContainer.style.display = 'none';
+          }
+          
           await loadMemoryDashboard(state.currentData.customer_id);
 
         } catch (e) {
@@ -2429,6 +2458,26 @@ We need this fixed before our QBR next month.Can we set up a call with your engi
           btnReject.disabled = false;
           btnModify.disabled = false;
         }
+      }
+
+      // Show action execution stubs in UI
+      function showExecutionLogs(logs) {
+        const container = document.getElementById('executionLogsContainer');
+        const logsDiv = document.getElementById('executionLogs');
+        if (!container || !logsDiv) return;
+        
+        if (!logs || logs.length === 0) {
+          container.style.display = 'none';
+          return;
+        }
+        
+        logsDiv.innerHTML = logs.map(log => \`
+          <div style="padding: 6px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 4px;">
+            <div style="font-weight: 700; color: var(--text); margin-bottom: 2px;">\${escapeHtml(log.status)}</div>
+            <div style="color: var(--text-muted); font-size: 11px;">\${escapeHtml(log.details)}</div>
+          </div>
+        \`).join('');
+        container.style.display = 'block';
       }
 
       // Review local storage log history list
@@ -2611,82 +2660,12 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Ingest interaction workflow start
-  if (req.url === '/workflow/start' && req.method === 'POST') {
+  // General POST Proxy handler to Python backend
+  if (['/workflow/start', '/workflow/feedback', '/workflow/review', '/execute', '/evaluate'].includes(req.url) && req.method === 'POST') {
     let body = '';
     req.on('data', chunk => { body += chunk; });
     req.on('end', () => {
-      const target = backendUrl + '/workflow/start';
-      const parsedUrl = new URL(target);
-      const options = {
-        hostname: parsedUrl.hostname,
-        port: parsedUrl.port,
-        path: parsedUrl.pathname,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(body)
-        }
-      };
-      const backendReq = http.request(options, (backendRes) => {
-        let responseData = '';
-        backendRes.on('data', (chunk) => (responseData += chunk));
-        backendRes.on('end', () => {
-          try {
-            sendJson(res, backendRes.statusCode || 200, JSON.parse(responseData));
-          } catch {
-            sendJson(res, 502, { error: 'Backend error' });
-          }
-        });
-      });
-      backendReq.on('error', () => sendJson(res, 502, { error: 'Unable to reach backend' }));
-      backendReq.write(body);
-      backendReq.end();
-    });
-    return;
-  }
-
-  // Step feedback logger
-  if (req.url === '/workflow/feedback' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
-      const target = backendUrl + '/workflow/feedback';
-      const parsedUrl = new URL(target);
-      const options = {
-        hostname: parsedUrl.hostname,
-        port: parsedUrl.port,
-        path: parsedUrl.pathname,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(body)
-        }
-      };
-      const backendReq = http.request(options, (backendRes) => {
-        let responseData = '';
-        backendRes.on('data', (chunk) => (responseData += chunk));
-        backendRes.on('end', () => {
-          try {
-            sendJson(res, backendRes.statusCode || 200, JSON.parse(responseData));
-          } catch {
-            sendJson(res, 502, { error: 'Backend error' });
-          }
-        });
-      });
-      backendReq.on('error', () => sendJson(res, 502, { error: 'Unable to reach backend' }));
-      backendReq.write(body);
-      backendReq.end();
-    });
-    return;
-  }
-
-  // Human Review Gate (POST workflow/review)
-  if (req.url === '/workflow/review' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
-      const target = backendUrl + '/workflow/review';
+      const target = backendUrl + req.url;
       const parsedUrl = new URL(target);
       const options = {
         hostname: parsedUrl.hostname,

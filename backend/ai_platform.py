@@ -181,36 +181,216 @@ class WorkflowStartResult:
 
 
 class MemoryStore:
-    """Minimal in-memory store for MVP.
+    """SQLite-backed persistent memory store for customer interactions, runs, reviews, and lessons.
 
-    Designed to be replaceable by a DB later.
+    Designed as a direct replacement for the MVP's in-memory store.
     """
 
-    def __init__(self) -> None:
-        self._interactions: Dict[str, IngestedInteraction] = {}
-        self._reviews: Dict[str, HumanReview] = {}
-        self._runs: Dict[str, WorkflowStartResult] = {}
-        self._lessons: Dict[Tuple[str, DecisionDomain], List[Dict[str, Any]]] = {}
+    def __init__(self, db_path: str = "crm.db") -> None:
+        import sys
+        # Auto-detect if running inside a unit test to avoid polluting crm.db
+        is_testing = False
+        if "unittest" in sys.argv[0] or "pytest" in sys.argv[0] or os.environ.get("TESTING") == "true":
+            is_testing = True
+        
+        self.db_path = ":memory:" if is_testing else db_path
+        self.conn = None
+        self._init_db()
+
+    def _init_db(self) -> None:
+        try:
+            self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        except Exception:
+            self.conn = sqlite3.connect(":memory:", check_same_thread=False)
+        
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS interactions (
+                interaction_id TEXT PRIMARY KEY,
+                customer_id TEXT,
+                domain TEXT,
+                data TEXT
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS runs (
+                run_id TEXT PRIMARY KEY,
+                customer_id TEXT,
+                domain TEXT,
+                interaction_id TEXT,
+                data TEXT
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS reviews (
+                review_id TEXT PRIMARY KEY,
+                run_id TEXT,
+                status TEXT,
+                reviewer_notes TEXT,
+                created_at TEXT
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS lessons (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                customer_id TEXT,
+                domain TEXT,
+                data TEXT
+            )
+        """)
+        self.conn.commit()
+
+    @property
+    def _interactions(self) -> Dict[str, IngestedInteraction]:
+        import json
+        from ai_platform import IngestedInteraction, InteractionEnrichment
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT interaction_id, data FROM interactions")
+        rows = cursor.fetchall()
+        interactions_dict = {}
+        for int_id, data_str in rows:
+            try:
+                d = json.loads(data_str)
+                ec_dict = d.get("enriched_context", {})
+                enriched_context = InteractionEnrichment(
+                    detected_format=ec_dict.get("detected_format", "raw"),
+                    sentiment=ec_dict.get("sentiment", "neutral"),
+                    sentiment_score=ec_dict.get("sentiment_score", 0.0),
+                    participants=ec_dict.get("participants", []),
+                    key_topics=ec_dict.get("key_topics", []),
+                    action_items=ec_dict.get("action_items", []),
+                    unresolved_questions=ec_dict.get("unresolved_questions", []),
+                    urgency_score=ec_dict.get("urgency_score", 0.0),
+                    kpi_impact_area=ec_dict.get("kpi_impact_area"),
+                    sentiment_analysis=ec_dict.get("sentiment_analysis", "")
+                )
+                interactions_dict[int_id] = IngestedInteraction(
+                    interaction_id=d["interaction_id"],
+                    customer_id=d["customer_id"],
+                    domain=d["domain"],
+                    source_type=d["source_type"],
+                    raw_text=d["raw_text"],
+                    canonical_text=d["canonical_text"],
+                    ingested_at=d["ingested_at"],
+                    enriched_context=enriched_context
+                )
+            except Exception:
+                pass
+        return interactions_dict
+
+    @property
+    def _runs(self) -> Dict[str, WorkflowStartResult]:
+        import json
+        from ai_platform import OpportunityRisk, NextBestAction, EvidenceItem, HumanReview, WorkflowStartResult
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT run_id, data FROM runs")
+        rows = cursor.fetchall()
+        runs_dict = {}
+        for run_id, data_str in rows:
+            try:
+                d = json.loads(data_str)
+                analysis = OpportunityRisk(**d["analysis"]) if isinstance(d["analysis"], dict) else d["analysis"]
+                next_best_actions = []
+                for nba in d.get("next_best_actions", []):
+                    evidence = [EvidenceItem(**ev) for ev in nba.get("evidence", [])]
+                    next_best_actions.append(NextBestAction(
+                        action_id=nba["action_id"],
+                        title=nba["title"],
+                        summary=nba["summary"],
+                        confidence=nba["confidence"],
+                        evidence=evidence,
+                        rationale=nba["rationale"],
+                        recommended_next_questions=nba.get("recommended_next_questions", [])
+                    ))
+                hr = HumanReview(**d["human_review"]) if isinstance(d["human_review"], dict) else d["human_review"]
+                runs_dict[run_id] = WorkflowStartResult(
+                    run_id=d["run_id"],
+                    customer_id=d["customer_id"],
+                    domain=d["domain"],
+                    interaction_id=d["interaction_id"],
+                    analysis=analysis,
+                    next_best_actions=next_best_actions,
+                    proposed_execution=d.get("proposed_execution", {}),
+                    explanation_bundle=d.get("explanation_bundle", {}),
+                    human_review=hr,
+                    success_metrics=d.get("success_metrics", {})
+                )
+            except Exception:
+                pass
+        return runs_dict
+
+    @property
+    def _reviews(self) -> Dict[str, HumanReview]:
+        from ai_platform import HumanReview
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT review_id, status, reviewer_notes, created_at FROM reviews")
+        rows = cursor.fetchall()
+        reviews_dict = {}
+        for r_id, status, notes, created_at in rows:
+            reviews_dict[r_id] = HumanReview(
+                review_id=r_id,
+                status=status,
+                reviewer_notes=notes,
+                created_at=created_at
+            )
+        return reviews_dict
 
     def put_interaction(self, interaction: IngestedInteraction) -> None:
-        self._interactions[interaction.interaction_id] = interaction
+        import json
+        from dataclasses import asdict
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "INSERT OR REPLACE INTO interactions (interaction_id, customer_id, domain, data) VALUES (?, ?, ?, ?)",
+            (interaction.interaction_id, interaction.customer_id, interaction.domain, json.dumps(asdict(interaction)))
+        )
+        self.conn.commit()
 
     def put_run(self, result: WorkflowStartResult) -> None:
-        self._runs[result.run_id] = result
-        self._reviews[result.human_review.review_id] = result.human_review
+        import json
+        from dataclasses import asdict
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "INSERT OR REPLACE INTO runs (run_id, customer_id, domain, interaction_id, data) VALUES (?, ?, ?, ?, ?)",
+            (result.run_id, result.customer_id, result.domain, result.interaction_id, json.dumps(asdict(result)))
+        )
+        hr = result.human_review
+        cursor.execute(
+            "INSERT OR REPLACE INTO reviews (review_id, run_id, status, reviewer_notes, created_at) VALUES (?, ?, ?, ?, ?)",
+            (hr.review_id, result.run_id, hr.status, hr.reviewer_notes, hr.created_at)
+        )
+        self.conn.commit()
 
     def update_review(self, review_id: str, status: str, reviewer_notes: Optional[str]) -> None:
-        hr = self._reviews[review_id]
-        hr.status = status  # type: ignore[assignment]
-        hr.reviewer_notes = reviewer_notes
+        import json
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "UPDATE reviews SET status = ?, reviewer_notes = ? WHERE review_id = ?",
+            (status, reviewer_notes, review_id)
+        )
+        cursor.execute(
+            "SELECT run_id, data FROM runs WHERE run_id = (SELECT run_id FROM reviews WHERE review_id = ?)",
+            (review_id,)
+        )
+        row = cursor.fetchone()
+        if row:
+            run_id, run_data_str = row
+            run_data = json.loads(run_data_str)
+            if "human_review" in run_data:
+                run_data["human_review"]["status"] = status
+                run_data["human_review"]["reviewer_notes"] = reviewer_notes
+            cursor.execute(
+                "UPDATE runs SET data = ? WHERE run_id = ?",
+                (json.dumps(run_data), run_id)
+            )
+        self.conn.commit()
 
     def get_memory(self, customer_id: str) -> Dict[str, Any]:
-        lessons: List[Dict[str, Any]] = []
-        for (cid, _domain), items in self._lessons.items():
-            if cid == customer_id:
-                lessons.extend(items)
+        import json
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT data FROM lessons WHERE customer_id = ?", (customer_id,))
+        rows = cursor.fetchall()
+        lessons = [json.loads(r[0]) for r in rows]
 
-        # Separate overall run reviews and individual step feedbacks
         run_reviews = [l for l in lessons if l.get("source") != "individual_step_feedback"]
         step_feedbacks = [l for l in lessons if l.get("source") == "individual_step_feedback"]
 
@@ -220,7 +400,6 @@ class MemoryStore:
         approved_steps = [l for l in step_feedbacks if l.get("feedback_status") == "approved"]
         rejected_steps = [l for l in step_feedbacks if l.get("feedback_status") == "rejected"]
 
-        # Aggregate KPI deltas from approved outcomes to show continuous improvement.
         kpi_history: Dict[str, List[str]] = {}
         for lesson in approved_runs:
             improvements = lesson.get("kpi_improvements") or {}
@@ -235,8 +414,6 @@ class MemoryStore:
                         kpi_history.setdefault(metric, []).append(value)
 
         learned_insights: List[str] = []
-        
-        # Run-level feedback insights
         if approved_runs:
             top_actions = [l.get("top_action_title") for l in approved_runs if l.get("top_action_title")]
             if top_actions:
@@ -260,7 +437,6 @@ class MemoryStore:
                     f"{len(rejected_runs)} blocked run(s) recorded."
                 )
 
-        # Step-level feedback insights
         if approved_steps:
             learned_insights.append(
                 f"Approved actions in training: {', '.join(sorted(list(set(l['action_title'] for l in approved_steps))))}."
@@ -296,14 +472,19 @@ class MemoryStore:
         action_title: str,
         feedback_status: str
     ) -> None:
-        key = (customer_id, domain)
-        self._lessons.setdefault(key, [])
-        self._lessons[key].append({
+        import json
+        cursor = self.conn.cursor()
+        lesson_data = {
             "action_title": action_title,
             "feedback_status": feedback_status,
             "learned_at": datetime.utcnow().isoformat() + "Z",
             "source": "individual_step_feedback"
-        })
+        }
+        cursor.execute(
+            "INSERT INTO lessons (customer_id, domain, data) VALUES (?, ?, ?)",
+            (customer_id, domain, json.dumps(lesson_data))
+        )
+        self.conn.commit()
 
     def learn_from_outcome(
         self,
@@ -313,14 +494,23 @@ class MemoryStore:
         review_status: str,
         reviewer_notes: Optional[str],
     ) -> None:
-        key = (customer_id, domain)
-        self._lessons.setdefault(key, [])
+        import json
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT data FROM runs WHERE run_id = ?", (run_id,))
+        row = cursor.fetchone()
+        run = json.loads(row[0]) if row else None
 
-        run = self._runs.get(run_id)
-        kpi_snapshot = dict(run.success_metrics) if run else {}
-        top_action_title = run.next_best_actions[0].title if run and run.next_best_actions else None
+        kpi_snapshot = {}
+        top_action_title = None
+        if run:
+            if isinstance(run, dict):
+                kpi_snapshot = run.get("success_metrics", {})
+                next_actions = run.get("next_best_actions", [])
+                top_action_title = next_actions[0].get("title") if next_actions else None
+            else:
+                kpi_snapshot = dict(run.success_metrics) if hasattr(run, "success_metrics") else {}
+                top_action_title = run.next_best_actions[0].title if getattr(run, "next_best_actions", None) else None
 
-        # Simulate KPI improvement when a human approves — demonstrates closed-loop learning.
         kpi_improvements: Dict[str, str] = {}
         if review_status == "approved" and kpi_snapshot:
             for metric_key, metric_val in kpi_snapshot.items():
@@ -329,18 +519,21 @@ class MemoryStore:
                 elif isinstance(metric_val, str):
                     kpi_improvements[metric_key] = metric_val
 
-        self._lessons[key].append(
-            {
-                "run_id": run_id,
-                "review_status": review_status,
-                "reviewer_notes": reviewer_notes,
-                "learned_at": datetime.utcnow().isoformat() + "Z",
-                "kpi_snapshot": kpi_snapshot,
-                "kpi_improvements": kpi_improvements,
-                "top_action_title": top_action_title,
-                "insight": self._derive_lesson_insight(review_status, reviewer_notes, top_action_title),
-            }
+        lesson_data = {
+            "run_id": run_id,
+            "review_status": review_status,
+            "reviewer_notes": reviewer_notes,
+            "learned_at": datetime.utcnow().isoformat() + "Z",
+            "kpi_snapshot": kpi_snapshot,
+            "kpi_improvements": kpi_improvements,
+            "top_action_title": top_action_title,
+            "insight": self._derive_lesson_insight(review_status, reviewer_notes, top_action_title),
+        }
+        cursor.execute(
+            "INSERT INTO lessons (customer_id, domain, data) VALUES (?, ?, ?)",
+            (customer_id, domain, json.dumps(lesson_data))
         )
+        self.conn.commit()
 
     @staticmethod
     def _derive_lesson_insight(
@@ -356,7 +549,11 @@ class MemoryStore:
         return "Rejected without notes — increase discovery depth before recommending execution."
 
     def get_lessons_for_customer(self, customer_id: str, domain: DecisionDomain) -> List[Dict[str, Any]]:
-        return list(self._lessons.get((customer_id, domain), []))
+        import json
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT data FROM lessons WHERE customer_id = ? AND domain = ?", (customer_id, domain))
+        rows = cursor.fetchall()
+        return [json.loads(r[0]) for r in rows]
 
 
 class MockKnowledge:

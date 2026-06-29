@@ -474,3 +474,105 @@ Customer Input ➔ AI Enrichment ➔ Planner Agent ➔ Specialized Agents ➔ En
 9. **Intelligence Dashboards**: Combined Executive KPI rings (Win Probabilities, Churn Risk, Approval Rates, confidence) and Memory logs tracking continual improvement statistics.
 10. **Aesthetics & Modes**: Cinematic dark mode default, fully responsive layout grids, loading skeletons, and interactive dark/light toggling.
 
+
+---
+
+## Layer 5 Completed: Production-Ready + Innovation
+
+Layer 5 upgrades Decisio-AI to a production-ready agentic decision intelligence platform, introducing structured persistence, a metric-driven evaluation runner, automated downstream execution stubs, and clean extensibility patterns.
+
+### 1. Persistence Layer (SQLite Database)
+Decisio-AI has replaced the MVP's volatile in-memory storage with persistent storage built on SQLite, sharing the `crm.db` database inside the backend container. 
+
+The tables created and maintained are:
+- `interactions`: Persists raw and canonical customer interaction text, source, and ingestion metadata.
+- `runs`: Stores the complete serialized JSON structure of each workflow run (represented by the `WorkflowStartResult` class).
+- `reviews`: Manages human review states (`pending`, `approved`, `rejected`), reviewer notes, and timestamps.
+- `lessons`: Stores learned organizational insights, KPI snapshots, and individual step feedbacks.
+
+> [!NOTE]
+> During automated unit testing (using `unittest` or `pytest`), the system automatically switches to an in-memory database (`:memory:`) to ensure no side-effects or test database contamination occur.
+
+### 2. Action Execution Engine (Simulated Downsides & Stubs)
+Upon human approval (`approved` status submitted to `/workflow/review`), the UI automatically triggers the POST `/execute` backend endpoint. 
+The backend retrieves the approved run data from the SQLite database and executes the recommended next steps in a simulated environment, returning downstream system logs:
+*   **Draft Email Generated**: A customized template created for key stakeholders.
+*   **CRM Updated**: Deal win probability or churn risk values updated inside the database.
+*   **Calendar Invite Created**: Follow-up cadence meeting invite queued.
+
+These execution actions are rendered in real time in a dedicated, visually animated **Action Execution Logs** panel under the human review buttons.
+
+### 3. Evaluation Framework (`/evaluate`)
+The platform includes an automated scenario runner deployed at the `/evaluate` endpoint. This runner validates model performance and measures business outcomes at scale.
+
+*   **Endpoint**: `POST /evaluate`
+*   **Payload**:
+    ```json
+    {
+      "domain": "saas_sales",
+      "customer_id": "CUST-EVAL-101",
+      "num_scenarios": 5
+    }
+    ```
+*   **Action**: Simulates `num_scenarios` distinct, domain-specific scenarios (e.g. pricing negotiation, technical barriers, churn warning signs) through the orchestrator, runs them, decides approvals using a quality confidence threshold, and aggregates the outcomes.
+*   **Metrics Returned**:
+    - **Acceptance Rate**: Ratio of recommendations approved vs. total scenarios run.
+    - **Average Confidence**: Mean confidence level of recommended actions.
+    - **KPI Improvements**: Average win probability lift (for sales cases) or churn risk reduction (for customer success cases).
+
+### 4. Extensibility Showcase (Adding Domains & Agents)
+Decisio-AI is architected for zero-code-churn expansion:
+*   **To Add a Domain (e.g. "Staffing")**: Add specific rules in `config/business_rules.yaml`, relevant documents in `knowledge/*.yaml`, define a domain agent extending `BaseAgent`, and register the agent/workflow in the registries.
+*   **Easy Registration**: `AgentRegistry.register()` and `WorkflowRegistry.register()` allow dynamic registration of workflows and agents in one line without altering the core `PlannerAgent` class.
+
+---
+
+## Local & One-Click Deployment Guide
+
+### Local Execution (Docker Compose)
+Ensure Docker is installed and running on your system, then launch the platform:
+```bash
+docker compose up --build
+```
+*   **Frontend Command Center**: [http://localhost:3001](http://localhost:3001)
+*   **FastAPI backend docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
+
+### One-Click Cloud Deploy (Render / Railway / fly.io)
+You can easily deploy Decisio-AI to the cloud using separate containers for the frontend and backend:
+
+#### 1. Backend Service (Python FastAPI)
+- **Deployment Type**: Web Service
+- **Build Command**: `pip install -r requirements.txt`
+- **Start Command**: `uvicorn main:app --host 0.0.0.0 --port 8000`
+- **Environment Variables**:
+  - `OLLAMA_HOST`: Set to your hosted local Ollama instance (or leave empty to fall back to rule-based analysis).
+  - `TESTING`: `false`
+
+#### 2. Frontend Service (Node.js)
+- **Deployment Type**: Web Service
+- **Build/Start Command**: `npm install && node server.js`
+- **Environment Variables**:
+  - `BACKEND_URL`: URL of the deployed backend service (e.g., `https://decisio-backend.onrender.com`).
+- **Ports**: Map port `3000` to public access.
+
+---
+
+## Business Outcomes & Evaluation Methodology
+
+Our evaluation framework validates that the decision intelligence platform drives measurable business outcomes rather than just predicting text:
+- **Calibrated Gating**: High-confidence proposals (`>= 72%`) trigger automated stubs, while low-confidence ones are flagged for manual developer/reviewer review.
+- **Closed-Loop Learning**: Approved runs write KPI gains directly to the `lessons` table, allowing future planner runs to load past positive outcomes, increasing confidence dynamically over time.
+- **Measurable Metrics**: Run `/evaluate` to view aggregated win rate gains and churn reductions.
+
+---
+
+## 5-Minute Architecture Walkthrough Notes
+
+When presenting Decisio-AI to the hackathon judges, focus on these four key architectural points:
+
+1.  **Dual-Engine Vector Store**: Explain how we use semantic search (ChromaDB + embeddings) with a seamless, pure-Python fallback (TF-IDF + Cosine Similarity) to ensure 100% offline uptime and zero-compilation build reliability on any host system.
+2.  **Stateful Orchestration**: Highlight the decoupled `WorkflowOrchestrator` state machine. Emphasize that the Planner only routes the workflow; specialized agents (memory, analyzer, retriever, recommender, explainer) execute standard or custom sequences.
+3.  **Human-in-the-Loop Gate**: Show how no actions are executed until the human review gate is passed. Demonstrate that reviewer notes modify-and-rerun the planner, while approvals commit outcome context to the SQLite database.
+4.  **Continuous Self-Improvement**: Show the closed-loop learning mechanism. An approved proposal updates the customer's shared memory, which biases future confidence levels for similar playbook categories.
+
+
