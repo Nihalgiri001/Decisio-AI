@@ -1331,13 +1331,6 @@ const html = `<!DOCTYPE html>
         <span class="nav-label">Workflow</span>
       </div>
 
-      <div class="sidebar-nav-item" role="listitem" id="nav-knowledge" onclick="setActiveNav('knowledge')" tabindex="0" aria-label="Knowledge">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
-        </svg>
-        <span class="nav-label">Knowledge</span>
-      </div>
-
       <div class="sidebar-nav-item" role="listitem" id="nav-memory" onclick="setActiveNav('memory');scrollToSection('memory-section')" tabindex="0" aria-label="Memory">
         <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
@@ -1354,12 +1347,7 @@ const html = `<!DOCTYPE html>
         <span class="nav-label">Logs</span>
       </div>
 
-      <div class="sidebar-nav-item" role="listitem" id="nav-settings" onclick="setActiveNav('settings')" tabindex="0" aria-label="Settings">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/>
-        </svg>
-        <span class="nav-label">Settings</span>
-      </div>
+
     </div>
 
     <div class="sidebar-footer">
