@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 
 import ollama
 try:
+    # pyrefly: ignore [missing-import]
     import openai
 except ImportError:
     openai = None
