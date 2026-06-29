@@ -6,6 +6,10 @@ import re
 from typing import Any, Dict, Optional
 
 import ollama
+try:
+    import openai
+except ImportError:
+    openai = None
 from pydantic import BaseModel
 
 class LLMResponse(BaseModel):
@@ -19,6 +23,7 @@ class OllamaClient:
     """Wrapper for Ollama with fallback support."""
     
     def __init__(self, model: str = "llama3.2", host: Optional[str] = None):
+        self.provider_name = "ollama"
         self.model = model
         self.host = host or os.getenv("OLLAMA_HOST", "http://host.docker.internal:11434")
         self.client = ollama.Client(host=self.host)
@@ -136,3 +141,116 @@ class OllamaClient:
             if name:
                 names.append(str(name))
         return names
+
+
+class GroqClient:
+    """Wrapper for Groq using OpenAI-compatible client."""
+    
+    def __init__(self, model: str = "llama-3.3-70b-versatile", api_key: Optional[str] = None):
+        self.provider_name = "groq"
+        self.model = model
+        self.api_key = api_key or os.getenv("GROQ_API_KEY")
+        self.last_error: Optional[str] = None
+        if self.api_key:
+            if openai is None:
+                raise ImportError("The 'openai' library is required to use GroqClient. Please install it with 'pip install openai'.")
+            self.client = openai.OpenAI(
+                api_key=self.api_key,
+                base_url="https://api.groq.com/openai/v1"
+            )
+        else:
+            self.client = None
+
+    def health_check(self) -> Dict[str, Any]:
+        """Verify Groq API connectivity and whether the configured model is available."""
+        if not self.api_key or not self.client:
+            self.last_error = "GROQ_API_KEY is not set"
+            return {
+                "ok": False,
+                "model": self.model,
+                "model_available": False,
+                "models": [],
+                "error": self.last_error,
+            }
+        try:
+            models_response = self.client.models.list()
+            models = [m.id for m in models_response.data]
+            model_available = self.model in models or any(m.startswith(self.model) for m in models)
+            self.last_error = None
+            print(
+                f"[Groq] Health check success "
+                f"model={self.model} model_available={model_available}"
+            )
+            return {
+                "ok": True,
+                "model": self.model,
+                "model_available": model_available,
+                "models": models,
+                "error": None,
+            }
+        except Exception as exc:
+            self.last_error = str(exc)
+            print(f"[Groq] Connection failed model={self.model}: {exc}")
+            return {
+                "ok": False,
+                "model": self.model,
+                "model_available": False,
+                "models": [],
+                "error": str(exc),
+            }
+
+    def generate(self, prompt: str, temperature: float = 0.7) -> Optional[str]:
+        """Generate text. Returns None on failure."""
+        if not self.api_key or not self.client:
+            self.last_error = "GROQ_API_KEY is not set"
+            return None
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=temperature,
+            )
+            content = response.choices[0].message.content.strip()
+            self.last_error = None
+            print(f"[Groq] Success model={self.model} mode=text chars={len(content)}")
+            return content
+        except Exception as exc:
+            self.last_error = str(exc)
+            print(f"[Groq] Generation failed model={self.model}: {exc}")
+            return None
+
+    def structured_generate(self, system_prompt: str, user_prompt: str) -> Optional[Dict]:
+        """Generate JSON using Groq JSON mode with tolerant parsing fallback."""
+        if not self.api_key or not self.client:
+            self.last_error = "GROQ_API_KEY is not set"
+            return None
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.2,
+            )
+            content = response.choices[0].message.content.strip()
+            parsed = self._parse_json_content(content)
+            self.last_error = None
+            print(
+                f"[Groq] Success model={self.model} mode=json "
+                f"chars={len(content)} keys={list(parsed.keys())}"
+            )
+            return parsed
+        except json.JSONDecodeError as exc:
+            self.last_error = f"JSON parse error: {exc}"
+            print(f"[Groq] JSON parse failed model={self.model}: {exc}")
+            return None
+        except Exception as exc:
+            self.last_error = str(exc)
+            print(f"[Groq] Structured generation failed model={self.model}: {exc}")
+            return None
+
+    @staticmethod
+    def _parse_json_content(content: str) -> Dict[str, Any]:
+        return OllamaClient._parse_json_content(content)

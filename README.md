@@ -209,17 +209,32 @@ On startup, the backend automatically initializes and seeds `crm.db` and downloa
 
 ---
 
-## Ollama Local LLM Enhancement
+## LLM Provider Enhancement (Ollama & Groq API)
 
-The planner can now enhance the business analysis step and Next Best Action recommendations with a local Ollama model, while keeping the existing rule-based analyzer and recommendation templates as reliable fallbacks. By default, `PlannerAgent` uses `llama3.2`; choose another model with:
+The planner can now enhance the business analysis step and Next Best Action recommendations with a fast cloud LLM (Groq API) or local model (Ollama), while keeping the existing rule-based analyzer and recommendation templates as reliable fallbacks.
+
+### Choosing your LLM Provider
+Set the environment variable `LLM_PROVIDER` to either `groq` or `ollama`. By default, it uses `ollama`.
+
+#### 1. Cloud-Based Option (Groq API)
+To use Groq, set the following environment variables:
+- `LLM_PROVIDER=groq`
+- `GROQ_API_KEY=your_groq_api_key`
+- `GROQ_MODEL` (Optional, defaults to `llama-3.3-70b-versatile`)
+
+Example to start the project with Groq:
+```bash
+GROQ_API_KEY=your_api_key LLM_PROVIDER=groq docker compose up --build
+```
+> [!NOTE]
+> If `GROQ_API_KEY` is not provided or if the Groq health check fails, the platform automatically falls back to Ollama. If Ollama is also unavailable, it falls back to the deterministic rule-based engine.
+
+#### 2. Local Option (Ollama)
+By default, `PlannerAgent` uses `llama3.2` model. Choose another model with:
 
 ```bash
 OLLAMA_MODEL=mistral docker compose up --build
 ```
-
-If Ollama is not running, the model is not pulled, the container cannot reach the host Ollama daemon, or the model returns malformed structured output, the workflow automatically falls back to deterministic rule-based analysis and recommendations. The response includes `explanation_bundle.analysis_engine` and `explanation_bundle.recommendation_engine` so demos can show whether Ollama or the fallback path produced each stage.
-
-Even when Ollama proposes recommendations, Decisio-AI still performs local evidence linking, confidence calibration, memory biasing, citation formatting, success metric calculation, and human-in-the-loop gating.
 
 For local enhancement, install and run Ollama separately, then pull the default model:
 
@@ -234,7 +249,7 @@ When running the backend in Docker and Ollama on the host, set `OLLAMA_HOST` if 
 OLLAMA_HOST=http://host.docker.internal:11434 docker compose up --build
 ```
 
-Fallback behavior means this is optional; `docker compose up --build` remains fully runnable without Ollama.
+Fallback behavior means these LLM options are optional; `docker compose up --build` remains fully runnable using the rule-based fallback when no LLMs are active.
 
 ### Ollama troubleshooting
 
@@ -545,6 +560,9 @@ You can easily deploy Decisio-AI to the cloud using separate containers for the 
 - **Build Command**: `pip install -r requirements.txt`
 - **Start Command**: `uvicorn main:app --host 0.0.0.0 --port 8000`
 - **Environment Variables**:
+  - `LLM_PROVIDER`: Set to `groq` or `ollama` (defaults to `ollama`).
+  - `GROQ_API_KEY`: Set to your Groq API Key if using `groq`.
+  - `GROQ_MODEL`: Set to target Groq model (defaults to `llama-3.3-70b-versatile`).
   - `OLLAMA_HOST`: Set to your hosted local Ollama instance (or leave empty to fall back to rule-based analysis).
   - `TESTING`: `false`
 

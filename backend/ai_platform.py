@@ -11,9 +11,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional, Tuple
 try:
-    from .llm_client import OllamaClient
+    from .llm_client import OllamaClient, GroqClient
 except ImportError:  # pragma: no cover - top-level import path used in Docker
-    from llm_client import OllamaClient
+    from llm_client import OllamaClient, GroqClient
 
 
 DecisionDomain = Literal[
@@ -1188,10 +1188,15 @@ class PlannerAgent:
         self.knowledge = knowledge
         self.memory = memory
         self.rules = load_business_rules()
-        # Ollama is an enhancement layer only. The planner remains fully usable
-        # when the local model is unavailable because analysis falls back to
-        # deterministic rule logic below.
-        self.llm = OllamaClient(model=os.getenv("OLLAMA_MODEL", "llama3.2"))
+        self.ollama_client = OllamaClient(model=os.getenv("OLLAMA_MODEL", "llama3.2"))
+        groq_api_key = os.getenv("GROQ_API_KEY")
+        if groq_api_key:
+            self.groq_client = GroqClient(model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"), api_key=groq_api_key)
+        else:
+            self.groq_client = None
+
+        # self.llm points to the active client, dynamically refreshed in health check
+        self.llm = self.ollama_client
         self.llm_available = False
         self._last_llm_health: Dict[str, Any] = {}
         self._last_analysis_metadata: Dict[str, Any] = {
@@ -1253,11 +1258,44 @@ class PlannerAgent:
             self.orchestrator = None
 
     def refresh_llm_health(self) -> Dict[str, Any]:
-        """Check Ollama once at startup and on demand via the health endpoint."""
-        self._last_llm_health = self.llm.health_check()
+        """Check active LLM provider (and fallback to Ollama/rules if needed)."""
+        provider = os.getenv("LLM_PROVIDER", "ollama").lower().strip()
+        groq_api_key = os.getenv("GROQ_API_KEY")
+
+        if provider == "groq":
+            if not groq_api_key:
+                print("[Groq] GROQ_API_KEY is not set. Falling back to Ollama...")
+                self.llm = self.ollama_client
+            else:
+                if not getattr(self, "groq_client", None):
+                    self.groq_client = GroqClient(model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"), api_key=groq_api_key)
+                self.llm = self.groq_client
+
+            # Health check the chosen provider (Groq)
+            if self.llm == self.groq_client:
+                print(f"[Groq] Attempting health check for model={self.llm.model}")
+                health = self.llm.health_check()
+                if health.get("ok") and health.get("model_available"):
+                    self._last_llm_health = health
+                    self.llm_available = True
+                    print(f"[Groq] Planner enabled model={self.llm.model}")
+                    return {
+                        **health,
+                        "provider": "groq",
+                        "planner_enabled": True,
+                    }
+                else:
+                    # Groq failed health check, log warning and try Ollama fallback
+                    print(f"[Groq] Health check failed: {health.get('error')}. Falling back to Ollama...")
+                    self.llm = self.ollama_client
+
+        # If provider is Ollama, or we fell back from Groq
+        self.llm = self.ollama_client
+        ollama_health = self.llm.health_check()
+        self._last_llm_health = ollama_health
         self.llm_available = bool(
-            self._last_llm_health.get("ok")
-            and self._last_llm_health.get("model_available")
+            ollama_health.get("ok")
+            and ollama_health.get("model_available")
         )
         if self.llm_available:
             print(
@@ -1270,7 +1308,8 @@ class PlannerAgent:
                 f"reason={self._last_llm_health.get('error') or 'model not available'}"
             )
         return {
-            **self._last_llm_health,
+            **ollama_health,
+            "provider": "ollama",
             "planner_enabled": self.llm_available,
         }
 
@@ -1916,7 +1955,8 @@ class PlannerAgent:
         rule-based analyzer.
         """
         if not self.llm_available:
-            print("[Ollama] Analysis skipped; planner health check is unavailable.")
+            pfx = f"[{self.llm.provider_name.capitalize()}]"
+            print(f"{pfx} Analysis skipped; planner health check is unavailable.")
             return self._fallback_analysis(
                 interaction=interaction,
                 org_context=org_context,
@@ -1940,35 +1980,38 @@ class PlannerAgent:
             )
             analysis = self._coerce_llm_analysis(llm_result)
             if analysis:
+                pfx = f"[{self.llm.provider_name.capitalize()}]"
                 print(
-                    f"[Ollama] Success analysis model={self.llm.model} "
+                    f"{pfx} Success analysis model={self.llm.model} "
                     f"opportunities={len(analysis.opportunities)} risks={len(analysis.risks)}"
                 )
                 self._last_analysis_metadata = {
-                    "engine": "ollama",
+                    "engine": self.llm.provider_name,
                     "model": self.llm.model,
                     "fallback_used": False,
                     "explanation": (
-                        "Ollama produced structured analysis; retrieval, recommendation scoring, "
+                        f"{self.llm.provider_name.capitalize()} produced structured analysis; retrieval, recommendation scoring, "
                         "memory, and success metrics stayed on the existing deterministic planner."
                     ),
                 }
                 return analysis
 
-            print("[Ollama] Analysis returned JSON but schema was not usable; falling back.")
+            pfx = f"[{self.llm.provider_name.capitalize()}]"
+            print(f"{pfx} Analysis returned JSON but schema was not usable; falling back.")
             return self._fallback_analysis(
                 interaction=interaction,
                 org_context=org_context,
                 domain=domain,
-                reason="Ollama returned no valid structured analysis.",
+                reason=f"{self.llm.provider_name.capitalize()} returned no valid structured analysis.",
             )
         except Exception as exc:
-            print(f"[Ollama] Analysis failed with exception; falling back: {exc}")
+            pfx = f"[{self.llm.provider_name.capitalize()}]"
+            print(f"{pfx} Analysis failed with exception; falling back: {exc}")
             return self._fallback_analysis(
                 interaction=interaction,
                 org_context=org_context,
                 domain=domain,
-                reason=f"Ollama analysis failed: {exc}",
+                reason=f"{self.llm.provider_name.capitalize()} analysis failed: {exc}",
             )
 
     def _build_llm_analysis_prompt(
@@ -2050,15 +2093,27 @@ Prefer specific enterprise language over generic advice.
         )
 
     def _llm_unavailable_reason(self) -> str:
-        if self._last_llm_health.get("ok") and not self._last_llm_health.get("model_available"):
+        provider_name = self.llm.provider_name if hasattr(self.llm, "provider_name") else "LLM"
+        if provider_name == "ollama":
+            if self._last_llm_health.get("ok") and not self._last_llm_health.get("model_available"):
+                return (
+                    f"Ollama is reachable at {getattr(self.llm, 'host', 'unknown')}, but model '{self.llm.model}' "
+                    "was not listed. Run `ollama pull llama3.2` or set OLLAMA_MODEL."
+                )
             return (
-                f"Ollama is reachable at {self.llm.host}, but model '{self.llm.model}' "
-                "was not listed. Run `ollama pull llama3.2` or set OLLAMA_MODEL."
+                f"Ollama is unavailable at {getattr(self.llm, 'host', 'unknown')}: "
+                f"{self._last_llm_health.get('error') or self.llm.last_error or 'health check failed'}"
             )
-        return (
-            f"Ollama is unavailable at {self.llm.host}: "
-            f"{self._last_llm_health.get('error') or self.llm.last_error or 'health check failed'}"
-        )
+        else:
+            if self._last_llm_health.get("ok") and not self._last_llm_health.get("model_available"):
+                return (
+                    f"Groq is reachable, but model '{self.llm.model}' "
+                    "is not available."
+                )
+            return (
+                f"Groq is unavailable: "
+                f"{self._last_llm_health.get('error') or self.llm.last_error or 'health check failed'}"
+            )
 
     def _fallback_analysis(
         self,
@@ -2067,11 +2122,12 @@ Prefer specific enterprise language over generic advice.
         domain: DecisionDomain,
         reason: str,
     ) -> OpportunityRisk:
-        print(f"[Ollama] Analysis fallback reason: {reason}")
+        pfx = f"[{self.llm.provider_name.capitalize()}]"
+        print(f"{pfx} Analysis fallback reason: {reason}")
         self._last_analysis_metadata = {
             "engine": "rule_based_fallback",
             "model": self.llm.model,
-            "host": self.llm.host,
+            "host": getattr(self.llm, "host", None),
             "fallback_used": True,
             "fallback_reason": reason,
             "explanation": "Used the existing deterministic analyzer to preserve workflow reliability.",
@@ -2197,15 +2253,16 @@ Prefer specific enterprise language over generic advice.
         customer_id: str,
         domain: DecisionDomain,
     ) -> List[NextBestAction]:
-        """Generate next-best actions with Ollama, then preserve planner guardrails.
+        """Generate next-best actions with active LLM, then preserve planner guardrails.
 
-        Ollama can improve action specificity and wording, but the platform keeps
+        The LLM can improve action specificity and wording, but the platform keeps
         deterministic safeguards: evidence is selected locally, confidence is
         calibrated locally, memory bias is applied locally, and every invalid or
         unavailable LLM response falls back to `_recommend_next_best_actions`.
         """
         if not self.llm_available:
-            print("[Ollama] Recommendations skipped; planner health check is unavailable.")
+            pfx = f"[{self.llm.provider_name.capitalize()}]"
+            print(f"{pfx} Recommendations skipped; planner health check is unavailable.")
             return self._fallback_recommendations(
                 interaction=interaction,
                 org_context=org_context,
@@ -2245,39 +2302,42 @@ Prefer specific enterprise language over generic advice.
                 domain=domain,
             )
             if actions:
+                pfx = f"[{self.llm.provider_name.capitalize()}]"
                 print(
-                    f"[Ollama] Success recommendations model={self.llm.model} "
+                    f"{pfx} Success recommendations model={self.llm.model} "
                     f"actions={len(actions)}"
                 )
                 self._last_recommendation_metadata = {
-                    "engine": "ollama",
+                    "engine": self.llm.provider_name,
                     "model": self.llm.model,
                     "fallback_used": False,
                     "explanation": (
-                        "Ollama proposed next-best actions; evidence linking, confidence calibration, "
+                        f"{self.llm.provider_name.capitalize()} proposed next-best actions; evidence linking, confidence calibration, "
                         "memory bias, citations, success metrics, and human review stayed deterministic."
                     ),
                 }
                 return actions
 
-            print("[Ollama] Recommendations returned JSON but schema was not usable; falling back.")
+            pfx = f"[{self.llm.provider_name.capitalize()}]"
+            print(f"{pfx} Recommendations returned JSON but schema was not usable; falling back.")
             return self._fallback_recommendations(
                 interaction=interaction,
                 org_context=org_context,
                 analysis=analysis,
                 customer_id=customer_id,
                 domain=domain,
-                reason="Ollama returned no valid structured recommendations.",
+                reason=f"{self.llm.provider_name.capitalize()} returned no valid structured recommendations.",
             )
         except Exception as exc:
-            print(f"[Ollama] Recommendations failed with exception; falling back: {exc}")
+            pfx = f"[{self.llm.provider_name.capitalize()}]"
+            print(f"{pfx} Recommendations failed with exception; falling back: {exc}")
             return self._fallback_recommendations(
                 interaction=interaction,
                 org_context=org_context,
                 analysis=analysis,
                 customer_id=customer_id,
                 domain=domain,
-                reason=f"Ollama recommendation failed: {exc}",
+                reason=f"{self.llm.provider_name.capitalize()} recommendation failed: {exc}",
             )
 
     def _build_llm_recommendation_prompt(
@@ -2480,11 +2540,12 @@ Use keywords that help match the action to evidence, such as map, champion, secu
         domain: DecisionDomain,
         reason: str,
     ) -> List[NextBestAction]:
-        print(f"[Ollama] Recommendation fallback reason: {reason}")
+        pfx = f"[{self.llm.provider_name.capitalize()}]"
+        print(f"{pfx} Recommendation fallback reason: {reason}")
         self._last_recommendation_metadata = {
             "engine": "rule_based_fallback",
             "model": self.llm.model,
-            "host": self.llm.host,
+            "host": getattr(self.llm, "host", None),
             "fallback_used": True,
             "fallback_reason": reason,
             "explanation": "Used deterministic recommendation templates with local evidence and confidence scoring.",
@@ -2829,7 +2890,7 @@ Use keywords that help match the action to evidence, such as map, champion, secu
         next_best_actions: List[NextBestAction],
         success_metrics: Dict[str, Any],
     ) -> str:
-        """Generate a natural language summary using Ollama, falling back to rule-based."""
+        """Generate a natural language summary using active LLM, falling back to rule-based."""
         if self.llm_available:
             system_prompt = (
                 "You are a senior B2B decision intelligence analyst. "
@@ -2850,10 +2911,12 @@ Use keywords that help match the action to evidence, such as map, champion, secu
                 full_prompt = f"{system_prompt}\n\nInput Context:\n{user_prompt}"
                 summary = self.llm.generate(full_prompt)
                 if summary:
-                    print(f"[Ollama] Generated natural language summary using {self.llm.model}")
+                    pfx = f"[{self.llm.provider_name.capitalize()}]"
+                    print(f"{pfx} Generated natural language summary using {self.llm.model}")
                     return summary
             except Exception as exc:
-                print(f"[Ollama] Summary generation failed: {exc}")
+                pfx = f"[{self.llm.provider_name.capitalize()}]"
+                print(f"{pfx} Summary generation failed: {exc}")
 
         return self._make_natural_language_summary_legacy(analysis, next_best_actions, success_metrics)
 
