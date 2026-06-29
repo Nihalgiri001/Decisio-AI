@@ -1,0 +1,45 @@
+# Best Practice Playbooks
+
+saas_sales:
+  - id: "PB-SAAS-01"
+    title: "Mutual action plan (MAP) after discovery"
+    excerpt: >
+      Within 48 hours of discovery, propose a 30/60-day MAP: named stakeholders,
+      success metrics (e.g., time-to-report), decision dates, and next meeting agenda.
+      MAP acceptance correlates with +25% win probability in enterprise segments.
+    tags: ["map", "mutual-action-plan", "process"]
+  - id: "PB-SAAS-02"
+    title: "Champion enablement kit"
+    excerpt: >
+      Provide champion with internal pitch deck, ROI one-pager, and security FAQ.
+      Champions who receive enablement close internal approvals 12 days faster on average.
+    tags: ["champion", "enablement", "roi"]
+  - id: "PB-SAAS-03"
+    title: "Security & procurement fast-track"
+    excerpt: >
+      If security review is mentioned, initiate SOC2/ISO packet and pre-fill questionnaire
+      within 5 business days. Delayed security responses are the #2 reason for slip in Q3-Q4.
+    tags: ["security", "soc2", "procurement", "sso"]
+
+customer_success:
+  - id: "PB-CS-01"
+    title: "At-risk account recovery"
+    excerpt: >
+      Reconfirm value drivers, execute a 30-day adoption plan with weekly check-ins,
+      and escalate internally with customer consent. Recovery plans executed within
+      10 days reduce churn probability by ~18%.
+    tags: ["recovery", "at-risk", "adoption"]
+
+staffing:
+  - id: "PB-STAFF-01"
+    title: "Accelerated submittal pipeline"
+    excerpt: >
+      For urgent reqs, pre-screen candidates against compliance checklist and submit
+      within 24 hours. Clients with submittals in 48h show 31% higher fill rates.
+    tags: ["submittal", "pipeline", "fill-rate"]
+  - id: "PB-STAFF-02"
+    title: "Compliance fast-track"
+    excerpt: >
+      Initiate background checks and credential verification on first qualified
+      submittal. Delays beyond 5 business days correlate with 22% req cancellation.
+    tags: ["compliance", "background-check", "credential"]
