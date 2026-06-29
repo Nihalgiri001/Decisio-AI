@@ -255,13 +255,20 @@ class MemoryStore:
                 enriched_context = InteractionEnrichment(
                     detected_format=ec_dict.get("detected_format", "raw"),
                     sentiment=ec_dict.get("sentiment", "neutral"),
+                    # pyrefly: ignore [unexpected-keyword]
                     sentiment_score=ec_dict.get("sentiment_score", 0.0),
                     participants=ec_dict.get("participants", []),
+                    # pyrefly: ignore [unexpected-keyword]
                     key_topics=ec_dict.get("key_topics", []),
+                    # pyrefly: ignore [unexpected-keyword]
                     action_items=ec_dict.get("action_items", []),
+                    # pyrefly: ignore [unexpected-keyword]
                     unresolved_questions=ec_dict.get("unresolved_questions", []),
+                    # pyrefly: ignore [unexpected-keyword]
                     urgency_score=ec_dict.get("urgency_score", 0.0),
+                    # pyrefly: ignore [unexpected-keyword]
                     kpi_impact_area=ec_dict.get("kpi_impact_area"),
+                    # pyrefly: ignore [unexpected-keyword]
                     sentiment_analysis=ec_dict.get("sentiment_analysis", "")
                 )
                 interactions_dict[int_id] = IngestedInteraction(
@@ -321,7 +328,7 @@ class MemoryStore:
 
     @property
     def _reviews(self) -> Dict[str, HumanReview]:
-        from ai_platform import HumanReview
+        from ai_platform import HumanReview 
         cursor = self.conn.cursor()
         cursor.execute("SELECT review_id, status, reviewer_notes, created_at FROM reviews")
         rows = cursor.fetchall()
@@ -945,7 +952,9 @@ def load_business_rules(config_path: str = "config/business_rules.yaml") -> Dict
 
 
 try:
+    # pyrefly: ignore [missing-import]
     import chromadb
+    # pyrefly: ignore [missing-import]
     from sentence_transformers import SentenceTransformer
     CHROMA_AVAILABLE = True
 except ImportError:
